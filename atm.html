@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Eye Tracking ATM Interface</title>
+  <link rel="stylesheet" href="css/atm.css">
+  <script src="js/atm.js"></script>
+</head>
+<body>
+  <div class="container-btn">
+    <a href="calibrate.html" class="button">Calibrate</a>
+  </div>
+  <div class="gaze-indicator" id="gaze-indicator"></div>
+  
+  
+  
+  <div class="status-overlay">
+    <span class="status-indicator" id="status-indicator"></span>
+    <span id="status-text">Eye Tracking: Inactive</span>
+  </div>
+  
+  <div class="notification" id="notification"></div>
+  
+  <div class="debug-info" id="debug-info"></div>
+  
+  <div class="container">
+    <div class="header">
+      <div class="bank-logo">Eye-Controlled ATM</div>
+    </div>
+    
+    <div class="atm-screen">
+      <!-- Loading Screen -->
+      <div class="screen active" id="loading-screen">
+        <div class="loading-screen">
+          <div class="spinner"></div>
+          <h2>Initializing ATM</h2>
+          <p>Please wait while we set up the eye tracking...</p>
+          <button class="btn" id="start-tracking">Start Eye Tracking</button>
+        </div>
+      </div>
+      
+      <!-- Welcome Screen -->
+      <div class="screen" id="welcome-screen">
+        <h2>Welcome to Eye-Controlled ATM</h2>
+        <p style="text-align: center; margin-bottom: 20px;">
+          Use your eyes to control the ATM. Look at a button for a moment to select it.
+        </p>
+        <div class="option-button" gazer-target="true" id="start-button">
+          Start Transaction
+        </div>
+      </div>
+      
+      <!-- PIN Screen -->
+      <div class="screen" id="pin-screen">
+        <h2>Enter Your PIN</h2>
+        <p style="text-align: center; margin-bottom: 5px;">
+          Gaze at the numbers to enter your PIN
+        </p>
+        <div class="pin-display" id="pin-display">____</div>
+        
+        <div class="keyboard">
+          <div class="key" gazer-target="true" data-key="1">1</div>
+          <div class="key" gazer-target="true" data-key="2">2</div>
+          <div class="key" gazer-target="true" data-key="3">3</div>
+          <div class="key" gazer-target="true" data-key="4">4</div>
+          <div class="key" gazer-target="true" data-key="5">5</div>
+          <div class="key" gazer-target="true" data-key="6">6</div>
+          <div class="key" gazer-target="true" data-key="7">7</div>
+          <div class="key" gazer-target="true" data-key="8">8</div>
+          <div class="key" gazer-target="true" data-key="9">9</div>
+          <div class="key" gazer-target="true" data-key="clear">Clear</div>
+          <div class="key" gazer-target="true" data-key="0">0</div>
+          <div class="key" gazer-target="true" data-key="enter">Enter</div>
+        </div>
+      </div>
+      
+      <!-- Transaction Selection Screen -->
+      <div class="screen" id="transaction-screen">
+        <h2>Select Transaction</h2>
+        <div class="option-button" gazer-target="true" id="withdrawal-button">
+          Cash Withdrawal
+        </div>
+        <div class="option-button" gazer-target="true" id="balance-button">
+          Balance Inquiry
+        </div>
+      </div>
+      
+      <!-- Withdrawal Amount Screen -->
+      <div class="screen" id="withdrawal-screen">
+        <h2>Select Withdrawal Amount</h2>
+        <div class="amount-selector">
+          <div class="option-button" gazer-target="true" data-amount="100">
+            ₹100
+          </div>
+          <div class="option-button" gazer-target="true" data-amount="200">
+            ₹200
+          </div>
+          <div class="option-button" gazer-target="true" data-amount="500">
+            ₹500
+          </div>
+          <div class="option-button" gazer-target="true" id="back-to-transactions">
+            Back
+          </div>
+        </div>
+      </div>
+      
+      <!-- Processing Screen -->
+      <div class="screen" id="processing-screen">
+        <div class="loading-screen">
+          <div class="spinner"></div>
+          <h2 id="processing-text">Processing Transaction</h2>
+          <p>Please wait...</p>
+        </div>
+      </div>
+      
+      <!-- Balance Screen -->
+      <div class="screen" id="balance-screen">
+        <h2>Account Balance</h2>
+        <div class="receipt">
+          <h3>BALANCE INQUIRY</h3>
+          <p>Account: <span>XXXX XXXX 1234</span></p>
+          <p>Date: <span id="balance-date">25/04/2025</span></p>
+          <p>Time: <span id="balance-time">10:25 AM</span></p>
+          <p class="total">Available Balance: <span>₹25,000.00</span></p>
+        </div>
+        <div class="option-button" gazer-target="true" id="balance-done-button">
+          Done
+        </div>
+      </div>
+      
+      <!-- Withdrawal Complete Screen -->
+      <div class="screen" id="withdrawal-complete-screen">
+        <h2>Withdrawal Complete</h2>
+        <div class="receipt">
+          <h3>CASH WITHDRAWAL</h3>
+          <p>Account: <span>XXXX XXXX 1234</span></p>
+          <p>Date: <span id="withdrawal-date">25/04/2025</span></p>
+          <p>Time: <span id="withdrawal-time">10:25 AM</span></p>
+          <p>Amount: <span id="withdrawal-amount">₹500.00</span></p>
+          <p class="total">Remaining Balance: <span>₹24,500.00</span></p>
+        </div>
+        <p style="text-align: center; margin: 20px 0;">Please collect your cash</p>
+        <div class="option-button" gazer-target="true" id="withdrawal-done-button">
+          Done
+        </div>
+      </div>
+      
+      <!-- Thank You Screen -->
+      <div class="screen" id="thank-you-screen">
+        <div class="loading-screen">
+          <h2>Thank You!</h2>
+          <p style="text-align: center; margin: 20px 0;">
+            Thank you for using our Eye-Controlled ATM.
+          </p>
+          <div class="option-button" gazer-target="true" id="new-transaction-button">
+            New Transaction
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+
+  <!-- WebGazer.js -->
+  <script src="webgazer.js"></script>
+</body>
+</html>
