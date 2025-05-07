@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Voice & Eye Tracking ATM Interface</title>
+    <link rel="stylesheet" href="css/atm.css" />
+    <script src="js/atm.js"></script>
+    <style>
+      /* Voice control specific styles */
+      .voice-control-indicator {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        background-color: #ccc;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        transition: background-color 0.3s ease;
+      }
+
+      .voice-control-indicator.listening {
+        background-color: #f55;
+        animation: pulse 1.5s infinite;
+      }
+
+      .voice-control-indicator i {
+        font-size: 24px;
+        color: white;
+      }
+
+      .command-feedback {
+        position: fixed;
+        bottom: 90px;
+        right: 20px;
+        padding: 10px 15px;
+        background-color: rgba(0, 0, 0, 0.7);
+        color: white;
+        border-radius: 5px;
+        font-size: 14px;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+        z-index: 1000;
+      }
+
+      .command-feedback.visible {
+        opacity: 1;
+      }
+
+      .interaction-toggle {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        display: flex;
+        background-color: #f0f0f0;
+        border-radius: 25px;
+        padding: 5px;
+        z-index: 1000;
+      }
+
+      .interaction-toggle button {
+        padding: 8px 15px;
+        border: none;
+        background: none;
+        border-radius: 20px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+
+      .interaction-toggle button.active {
+        background-color: #4caf50;
+        color: white;
+      }
+
+      .help-button {
+        position: fixed;
+        top: 20px;
+        left: 20px;
+        padding: 10px 15px;
+        background-color: #2196f3;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        z-index: 1000;
+      }
+
+      .commands-modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.7);
+        z-index: 2000;
+        justify-content: center;
+        align-items: center;
+      }
+
+      .commands-content {
+        background-color: white;
+        padding: 30px;
+        border-radius: 10px;
+        max-width: 600px;
+        width: 80%;
+        max-height: 80vh;
+        overflow-y: auto;
+      }
+
+      .commands-content h2 {
+        margin-top: 0;
+        color: #333;
+      }
+
+      .commands-list {
+        list-style-type: none;
+        padding: 0;
+      }
+
+      .commands-list li {
+        padding: 10px 0;
+        border-bottom: 1px solid #eee;
+      }
+
+      .commands-list strong {
+        display: inline-block;
+        min-width: 120px;
+        color: #2196f3;
+      }
+
+      .close-modal {
+        display: block;
+        margin: 20px auto 0;
+        padding: 10px 20px;
+        background-color: #4caf50;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+      }
+
+      @keyframes pulse {
+        0% {
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.1);
+        }
+        100% {
+          transform: scale(1);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container-btn">
+      <a href="calibrate.html" class="button">Calibrate</a>
+    </div>
+    <div class="gaze-indicator" id="gaze-indicator"></div>
+
+    <!-- Voice Control Elements -->
+    <div class="voice-control-indicator" id="voice-indicator">
+      <i class="fas fa-microphone"></i>
+    </div>
+    <div class="command-feedback" id="command-feedback"></div>
+
+    <div class="interaction-toggle">
+      <button id="eye-control-toggle" class="active">Eye Control</button>
+      <button id="voice-control-toggle">Voice Control</button>
+    </div>
+
+    <button class="help-button" id="help-button">Voice Commands</button>
+
+    <div class="commands-modal" id="commands-modal">
+      <div class="commands-content">
+        <h2>Available Voice Commands</h2>
+        <ul class="commands-list">
+          <li><strong>"Start"</strong> - Start a transaction</li>
+          <li><strong>"Enter PIN"</strong> - Go to PIN entry</li>
+          <li><strong>"One", "Two", ...</strong> - Enter PIN digits</li>
+          <li><strong>"Clear"</strong> - Clear PIN entry</li>
+          <li><strong>"Enter"</strong> - Confirm PIN</li>
+          <li><strong>"Withdrawal"</strong> - Select withdrawal</li>
+          <li><strong>"Balance"</strong> - Check balance</li>
+          <li><strong>"Hundred"</strong> - Select ₹100</li>
+          <li><strong>"Two Hundred"</strong> - Select ₹200</li>
+          <li><strong>"Five Hundred"</strong> - Select ₹500</li>
+          <li><strong>"Back"</strong> - Go back</li>
+          <li><strong>"Done"</strong> - Finish current transaction</li>
+          <li><strong>"New Transaction"</strong> - Start a new transaction</li>
+        </ul>
+        <button class="close-modal" id="close-modal">Close</button>
+      </div>
+    </div>
+
+    <div class="status-overlay">
+      <span class="status-indicator" id="status-indicator"></span>
+      <span id="status-text">Eye Tracking: Inactive</span>
+    </div>
+
+    <div class="notification" id="notification"></div>
+
+    <div class="debug-info" id="debug-info"></div>
+
+    <div class="container">
+      <div class="header">
+        <div class="bank-logo">Voice & Eye-Controlled ATM</div>
+      </div>
+
+      <div class="atm-screen">
+        <!-- Loading Screen -->
+        <div class="screen active" id="loading-screen">
+          <div class="loading-screen">
+            <div class="spinner"></div>
+            <h2>Initializing ATM</h2>
+            <p>Please wait while we set up the interaction controls...</p>
+            <button class="btn" id="start-tracking">Start Interaction</button>
+          </div>
+        </div>
+
+        <!-- Welcome Screen -->
+        <div class="screen" id="welcome-screen">
+          <h2>Welcome to Voice & Eye-Controlled ATM</h2>
+          <p style="text-align: center; margin-bottom: 20px">
+            Use your eyes or voice commands to control the ATM.
+            <br />Say "Start" or look at the button to begin.
+          </p>
+          <div class="option-button" gazer-target="true" id="start-button">
+            Start Transaction
+          </div>
+        </div>
+
+        <!-- PIN Screen -->
+        <div class="screen" id="pin-screen">
+          <h2>Enter Your PIN</h2>
+          <p style="text-align: center; margin-bottom: 5px">
+            Gaze at numbers or say digits to enter your PIN
+          </p>
+          <div class="pin-display" id="pin-display">____</div>
+
+          <div class="keyboard">
+            <div class="key" gazer-target="true" data-key="1">1</div>
+            <div class="key" gazer-target="true" data-key="2">2</div>
+            <div class="key" gazer-target="true" data-key="3">3</div>
+            <div class="key" gazer-target="true" data-key="4">4</div>
+            <div class="key" gazer-target="true" data-key="5">5</div>
+            <div class="key" gazer-target="true" data-key="6">6</div>
+            <div class="key" gazer-target="true" data-key="7">7</div>
+            <div class="key" gazer-target="true" data-key="8">8</div>
+            <div class="key" gazer-target="true" data-key="9">9</div>
+            <div class="key" gazer-target="true" data-key="clear">Clear</div>
+            <div class="key" gazer-target="true" data-key="0">0</div>
+            <div class="key" gazer-target="true" data-key="enter">Enter</div>
+          </div>
+        </div>
+
+        <!-- Transaction Selection Screen -->
+        <div class="screen" id="transaction-screen">
+          <h2>Select Transaction</h2>
+          <div class="option-button" gazer-target="true" id="withdrawal-button">
+            Cash Withdrawal
+          </div>
+          <div class="option-button" gazer-target="true" id="balance-button">
+            Balance Inquiry
+          </div>
+        </div>
+
+        <!-- Withdrawal Amount Screen -->
+        <div class="screen" id="withdrawal-screen">
+          <h2>Select Withdrawal Amount</h2>
+          <div class="amount-selector">
+            <div class="option-button" gazer-target="true" data-amount="100">
+              ₹100
+            </div>
+            <div class="option-button" gazer-target="true" data-amount="200">
+              ₹200
+            </div>
+            <div class="option-button" gazer-target="true" data-amount="500">
+              ₹500
+            </div>
+            <div
+              class="option-button"
+              gazer-target="true"
+              id="back-to-transactions"
+            >
+              Back
+            </div>
+          </div>
+        </div>
+
+        <!-- Processing Screen -->
+        <div class="screen" id="processing-screen">
+          <div class="loading-screen">
+            <div class="spinner"></div>
+            <h2 id="processing-text">Processing Transaction</h2>
+            <p>Please wait...</p>
+          </div>
+        </div>
+
+        <!-- Balance Screen -->
+        <div class="screen" id="balance-screen">
+          <h2>Account Balance</h2>
+          <div class="receipt">
+            <h3>BALANCE INQUIRY</h3>
+            <p>Account: <span>XXXX XXXX 1234</span></p>
+            <p>Date: <span id="balance-date">25/04/2025</span></p>
+            <p>Time: <span id="balance-time">10:25 AM</span></p>
+            <p class="total">Available Balance: <span>₹25,000.00</span></p>
+          </div>
+          <div
+            class="option-button"
+            gazer-target="true"
+            id="balance-done-button"
+          >
+            Done
+          </div>
+        </div>
+
+        <!-- Withdrawal Complete Screen -->
+        <div class="screen" id="withdrawal-complete-screen">
+          <h2>Withdrawal Complete</h2>
+          <div class="receipt">
+            <h3>CASH WITHDRAWAL</h3>
+            <p>Account: <span>XXXX XXXX 1234</span></p>
+            <p>Date: <span id="withdrawal-date">25/04/2025</span></p>
+            <p>Time: <span id="withdrawal-time">10:25 AM</span></p>
+            <p>Amount: <span id="withdrawal-amount">₹500.00</span></p>
+            <p class="total">Remaining Balance: <span>₹24,500.00</span></p>
+          </div>
+          <p style="text-align: center; margin: 20px 0">
+            Please collect your cash
+          </p>
+          <div
+            class="option-button"
+            gazer-target="true"
+            id="withdrawal-done-button"
+          >
+            Done
+          </div>
+        </div>
+
+        <!-- Thank You Screen -->
+        <div class="screen" id="thank-you-screen">
+          <div class="loading-screen">
+            <h2>Thank You!</h2>
+            <p style="text-align: center; margin: 20px 0">
+              Thank you for using our Voice & Eye-Controlled ATM.
+            </p>
+            <div
+              class="option-button"
+              gazer-target="true"
+              id="new-transaction-button"
+            >
+              New Transaction
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Font Awesome for icons -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/js/all.min.js"></script>
+
+    <!-- WebGazer.js -->
+    <script src="webgazer.js"></script>
+
+    <!-- Voice Control Script -->
+    <!-- <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        // ============= PIN HANDLING VARIABLES AND FUNCTIONS =============
+        // These need to be at the top of your script
+        const PIN_LENGTH = 3; // Define the PIN length
+        let currentPin = ""; // Initialize the current PIN
+        const pinDisplay = document.getElementById("pin-display"); // Get PIN display element
+
+        // Update PIN display mask
+        function updatePinDisplay() {
+          let display = "";
+          for (let i = 0; i < PIN_LENGTH; i++) {
+            display += i < currentPin.length ? "*" : "_";
+          }
+          pinDisplay.textContent = display;
+        }
+
+        // Handle virtual keyboard key press
+        function handleKeyPress(key) {
+          switch (key) {
+            case "clear":
+              currentPin = "";
+              updatePinDisplay();
+              break;
+            case "enter":
+              verifyPin();
+              break;
+            default:
+              if (currentPin.length < PIN_LENGTH) {
+                currentPin += key;
+                updatePinDisplay();
+                if (currentPin.length === PIN_LENGTH) {
+                  // Auto-verify after full PIN
+                  setTimeout(verifyPin, 500);
+                }
+              }
+              break;
+          }
+        }
+
+        // Verify entered PIN
+        function verifyPin() {
+          // In this version, we're skipping PIN verification and just showing transaction screen
+          // This matches the behavior in your second file
+          // showScreen("transaction-screen");
+
+          // If you want to verify against a specific PIN, uncomment this code:
+
+          const CORRECT_PIN = "123"; // Demo PIN
+          if (currentPin === CORRECT_PIN) {
+            showScreen("processing-screen");
+            setTimeout(() => {
+              showScreen("transaction-screen");
+            }, 2000);
+          } else {
+            showNotification("Incorrect PIN", "error");
+            currentPin = "";
+            updatePinDisplay();
+          }
+        }
+        // ============= VOICE CONTROL CODE CONTINUES HERE =============
+        // Voice control variables
+        let recognition;
+        let isVoiceControlActive = false;
+        let isListening = false;
+        const voiceIndicator = document.getElementById("voice-indicator");
+        const commandFeedback = document.getElementById("command-feedback");
+        const eyeControlToggle = document.getElementById("eye-control-toggle");
+        const voiceControlToggle = document.getElementById(
+          "voice-control-toggle"
+        );
+        const helpButton = document.getElementById("help-button");
+        const commandsModal = document.getElementById("commands-modal");
+        const closeModal = document.getElementById("close-modal");
+
+        // Check if browser supports SpeechRecognition
+        const SpeechRecognition =
+          window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+          recognition = new SpeechRecognition();
+          recognition.continuous = false;
+          recognition.lang = "en-US";
+          recognition.interimResults = false;
+          recognition.maxAlternatives = 1;
+
+          // Initialize voice control when page loads
+          initVoiceControl();
+        } else {
+          // Browser doesn't support speech recognition
+          showNotification(
+            "Voice control not supported in this browser.",
+            "error"
+          );
+          voiceControlToggle.disabled = true;
+          voiceControlToggle.style.opacity = 0.5;
+        }
+
+        // Initialize voice control
+        function initVoiceControl() {
+          // Event listeners for interaction toggle
+          eyeControlToggle.addEventListener("click", function () {
+            setActiveControl("eye");
+          });
+
+          voiceControlToggle.addEventListener("click", function () {
+            setActiveControl("voice");
+          });
+
+          // Help button event listener
+          helpButton.addEventListener("click", function () {
+            commandsModal.style.display = "flex";
+          });
+
+          closeModal.addEventListener("click", function () {
+            commandsModal.style.display = "none";
+          });
+
+          // Voice recognition event listeners
+          recognition.onstart = function () {
+            isListening = true;
+            voiceIndicator.classList.add("listening");
+          };
+
+          recognition.onend = function () {
+            isListening = false;
+            voiceIndicator.classList.remove("listening");
+
+            // Restart recognition if voice control is active
+            if (isVoiceControlActive) {
+              setTimeout(() => {
+                try {
+                  recognition.start();
+                } catch (e) {
+                  console.error("Recognition already started:", e);
+                }
+              }, 500);
+            }
+          };
+
+          recognition.onerror = function (event) {
+            console.error("Speech recognition error:", event.error);
+            voiceIndicator.classList.remove("listening");
+
+            if (event.error === "not-allowed") {
+              showNotification(
+                "Microphone access denied. Please allow microphone access to use voice control.",
+                "error"
+              );
+              setActiveControl("eye");
+            }
+
+            // Try to restart after error
+            if (isVoiceControlActive) {
+              setTimeout(() => {
+                try {
+                  recognition.start();
+                } catch (e) {
+                  console.error("Failed to restart recognition:", e);
+                }
+              }, 3000);
+            }
+          };
+
+          recognition.onresult = function (event) {
+            const command = event.results[0][0].transcript.toLowerCase().trim();
+            handleVoiceCommand(command);
+          };
+
+          // Add click event to voice indicator to toggle listening
+          voiceIndicator.addEventListener("click", function () {
+            toggleVoiceListening();
+          });
+        }
+
+        // Toggle voice listening
+        function toggleVoiceListening() {
+          if (isListening) {
+            recognition.stop();
+          } else if (isVoiceControlActive) {
+            try {
+              recognition.start();
+            } catch (e) {
+              console.error("Recognition error:", e);
+            }
+          }
+        }
+
+        // Set active control method
+        function setActiveControl(method) {
+          if (method === "eye") {
+            eyeControlToggle.classList.add("active");
+            voiceControlToggle.classList.remove("active");
+            isVoiceControlActive = false;
+
+            // Stop voice recognition if it's running
+            if (isListening) {
+              recognition.stop();
+            }
+
+            // Update status text
+            document.getElementById("status-text").textContent =
+              "Eye Tracking: Active";
+            showNotification("Eye control activated", "info");
+          } else if (method === "voice") {
+            voiceControlToggle.classList.add("active");
+            eyeControlToggle.classList.remove("active");
+            isVoiceControlActive = true;
+
+            // Start voice recognition
+            try {
+              recognition.start();
+            } catch (e) {
+              console.error("Recognition already started:", e);
+            }
+
+            // Update status text
+            document.getElementById("status-text").textContent =
+              "Voice Control: Active";
+            showNotification(
+              'Voice control activated. Say "Help" for commands.',
+              "info"
+            );
+          }
+        }
+
+        // Handle voice commands
+        function handleVoiceCommand(command) {
+          console.log("Voice command recognized:", command);
+          command = command.replace(".", "");
+          showCommandFeedback(command);
+
+          // General commands
+          if (command.includes("help")) {
+            commandsModal.style.display = "flex";
+            return;
+          }
+
+          // Get current active screen
+          const activeScreen = document.querySelector(".screen.active");
+          const screenId = activeScreen.id;
+
+          switch (screenId) {
+            case "welcome-screen":
+              if (command.includes("start")) {
+                document.getElementById("start-button").click();
+              }
+              break;
+
+            case "pin-screen":
+              handlePinScreenCommands(command);
+              break;
+
+            case "transaction-screen":
+              if (command.includes("withdrawal") || command.includes("cash")) {
+                document.getElementById("withdrawal-button").click();
+              } else if (
+                command.includes("balance") ||
+                command.includes("inquiry")
+              ) {
+                document.getElementById("balance-button").click();
+              }
+              break;
+
+            case "withdrawal-screen":
+              if (
+                command.includes("hundred") &&
+                !command.includes("two") &&
+                !command.includes("five")
+              ) {
+                document.querySelector('[data-amount="100"]').click();
+              } else if (
+                command.includes("two hundred") ||
+                command.includes("200")
+              ) {
+                document.querySelector('[data-amount="200"]').click();
+              } else if (
+                command.includes("five hundred") ||
+                command.includes("500")
+              ) {
+                document.querySelector('[data-amount="500"]').click();
+              } else if (command.includes("back")) {
+                document.getElementById("back-to-transactions").click();
+              }
+              break;
+
+            case "balance-screen":
+              if (command.includes("done")) {
+                document.getElementById("balance-done-button").click();
+              }
+              break;
+
+            case "withdrawal-complete-screen":
+              if (command.includes("done")) {
+                document.getElementById("withdrawal-done-button").click();
+              }
+              break;
+
+            case "thank-you-screen":
+              if (command.includes("new") && command.includes("transaction")) {
+                document.getElementById("new-transaction-button").click();
+              }
+              break;
+          }
+        }
+
+        // Handle PIN screen specific commands
+        function handlePinScreenCommands(command) {
+          command = command.replace(".", "");
+          // Number input
+          const numbers = {
+            zero: "0",
+            one: "1",
+            two: "2",
+            three: "3",
+            four: "4",
+            five: "5",
+            six: "6",
+            seven: "7",
+            eight: "8",
+            nine: "9",
+            0: "0",
+            1: "1",
+            2: "2",
+            3: "3",
+            4: "4",
+            5: "5",
+            6: "6",
+            7: "7",
+            8: "8",
+            9: "9",
+          };
+
+          // Check for direct number commands
+          for (const [word, number] of Object.entries(numbers)) {
+            if (command.includes(word)) {
+              // document.querySelector(`[data-key="${number}"]`).click();
+              handleKeyPress(number);
+              return;
+            }
+          }
+
+          // Other PIN commands
+          if (command.includes("clear")) {
+            document.querySelector('[data-key="clear"]').click();
+          } else if (command.includes("enter") || command.includes("submit")) {
+            document.querySelector('[data-key="enter"]').click();
+          }
+        }
+
+        // Show command feedback
+        function showCommandFeedback(command) {
+          commandFeedback.textContent = `Command: "${command}"`;
+          commandFeedback.classList.add("visible");
+
+          setTimeout(() => {
+            commandFeedback.classList.remove("visible");
+          }, 3000);
+        }
+
+        // Show notification
+        function showNotification(message, type = "info") {
+          const notification = document.getElementById("notification");
+          notification.textContent = message;
+          notification.className = "notification " + type;
+          notification.style.display = "block";
+
+          setTimeout(() => {
+            notification.style.display = "none";
+          }, 4000);
+        }
+
+        // Initialize voice control setup when Start button is clicked
+        document
+          .getElementById("start-tracking")
+          .addEventListener("click", function () {
+            // Original eye tracking initialization code would go here
+
+            // Default to eye control initially
+            setActiveControl("eye");
+
+            // Show welcome screen
+            document
+              .getElementById("loading-screen")
+              .classList.remove("active");
+            document.getElementById("welcome-screen").classList.add("active");
+          });
+
+        // Simulate ATM flow (this would work with the original eye tracking code)
+        // These are placeholder click handlers that would integrate with existing eye tracking code
+        document
+          .getElementById("start-button")
+          .addEventListener("click", function () {
+            showScreen("pin-screen");
+          });
+
+        document.querySelectorAll(".key").forEach((key) => {
+          key.addEventListener("click", function () {
+            // This would be handled by the existing ATM code
+            console.log("Key pressed:", this.dataset.key);
+          });
+        });
+
+        document
+          .getElementById("withdrawal-button")
+          .addEventListener("click", function () {
+            showScreen("withdrawal-screen");
+          });
+
+        document
+          .getElementById("balance-button")
+          .addEventListener("click", function () {
+            showScreen("processing-screen");
+            setTimeout(() => {
+              updateDateTime("balance");
+              showScreen("balance-screen");
+            }, 2000);
+          });
+
+        document.querySelectorAll("[data-amount]").forEach((btn) => {
+          btn.addEventListener("click", function () {
+            const amount = this.dataset.amount;
+            document.getElementById(
+              "withdrawal-amount"
+            ).textContent = `₹${amount}.00`;
+            showScreen("processing-screen");
+            setTimeout(() => {
+              updateDateTime("withdrawal");
+              showScreen("withdrawal-complete-screen");
+            }, 2000);
+          });
+        });
+
+        document
+          .getElementById("back-to-transactions")
+          .addEventListener("click", function () {
+            showScreen("transaction-screen");
+          });
+
+        document
+          .getElementById("balance-done-button")
+          .addEventListener("click", function () {
+            showScreen("thank-you-screen");
+          });
+
+        document
+          .getElementById("withdrawal-done-button")
+          .addEventListener("click", function () {
+            showScreen("thank-you-screen");
+          });
+
+        document
+          .getElementById("new-transaction-button")
+          .addEventListener("click", function () {
+            showScreen("welcome-screen");
+          });
+
+        // Helper function to show screens
+        function showScreen(screenId) {
+          document.querySelectorAll(".screen").forEach((screen) => {
+            screen.classList.remove("active");
+          });
+          document.getElementById(screenId).classList.add("active");
+        }
+
+        // Update date and time in receipts
+        function updateDateTime(type) {
+          const now = new Date();
+          const date = now.toLocaleDateString("en-IN", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+          });
+          const time = now.toLocaleTimeString("en-IN", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: true,
+          });
+
+          if (type === "balance") {
+            document.getElementById("balance-date").textContent = date;
+            document.getElementById("balance-time").textContent = time;
+          } else if (type === "withdrawal") {
+            document.getElementById("withdrawal-date").textContent = date;
+            document.getElementById("withdrawal-time").textContent = time;
+          }
+        }
+      });
+    </script> -->
+  </body>
+</html>
