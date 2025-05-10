@@ -20,6 +20,15 @@ document.addEventListener("DOMContentLoaded", function () {
     debugMode: false,
   };
 
+  // Speech configuration
+  const speechConfig = {
+    enabled: true,
+    rate: 1.0,
+    pitch: 1.0,
+    volume: 1.0,
+    voice: null // Will be set when a voice is selected
+  };
+
   // ------------------------------------------------------------
   // State Variables
   // ------------------------------------------------------------
@@ -39,6 +48,9 @@ document.addEventListener("DOMContentLoaded", function () {
   let recognition;
   let isVoiceControlActive = false;
   let isListening = false;
+  let isSpeaking = false;
+  let lastCommandTime = 0;
+  const COMMAND_DEBOUNCE = 1000; // 1 second between commands
 
   // ------------------------------------------------------------
   // UI Elements
@@ -58,10 +70,12 @@ document.addEventListener("DOMContentLoaded", function () {
   const helpButton = document.getElementById("help-button");
   const commandsModal = document.getElementById("commands-modal");
   const closeModal = document.getElementById("close-modal");
+  const speakingIndicator = document.getElementById("speaking-indicator");
 
   // ------------------------------------------------------------
   // Initialization
   // ------------------------------------------------------------
+  
   function init() {
     // Set up event listeners for eye-tracking
     document.getElementById("start-tracking").addEventListener("click", startApp);
@@ -81,8 +95,30 @@ document.addEventListener("DOMContentLoaded", function () {
     // Initialize voice control if supported
     initVoiceControl();
 
+    // Initialize speech synthesis
+    initSpeechSynthesis();
+
     // Button click handlers (for testing without eye tracking)
     setupClickHandlers();
+  }
+
+  // Initialize speech synthesis
+  function initSpeechSynthesis() {
+    if ('speechSynthesis' in window) {
+      // Wait for voices to be loaded
+      speechSynthesis.onvoiceschanged = function() {
+        const voices = speechSynthesis.getVoices();
+        // Prefer a female voice for better clarity
+        speechConfig.voice = voices.find(voice => 
+          voice.lang.includes('en') && voice.name.includes('Female')
+        ) || voices[0];
+      };
+      
+      // Some browsers don't fire the voiceschanged event
+      if (speechSynthesis.getVoices().length > 0) {
+        speechSynthesis.onvoiceschanged();
+      }
+    }
   }
 
   // Start the application
@@ -110,6 +146,7 @@ document.addEventListener("DOMContentLoaded", function () {
   // ------------------------------------------------------------
   // Eye Tracking Functions
   // ------------------------------------------------------------
+  // [Previous eye tracking functions remain unchanged...]
   // Initialize WebGazer with existing calibration
   async function initGazeTargeting() {
     try {
@@ -156,8 +193,8 @@ document.addEventListener("DOMContentLoaded", function () {
       indicator.style.top = `${y}px`;
     }
 
-    // Skip if voice control is active
-    if (isVoiceControlActive) return;
+    // Skip if voice control is active or system is speaking
+    if (isVoiceControlActive || isSpeaking) return;
 
     // Find all elements with the gazer-target attribute
     const targetElements = document.querySelectorAll(`[${gazeConfig.gazeAttributeName}="true"]`);
@@ -395,7 +432,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // Voice recognition event listeners
-    recognition.onstart = function () {
+    recognition.onstart = function() {
       isListening = true;
       if (voiceIndicator) {
         voiceIndicator.classList.add("listening");
@@ -408,8 +445,8 @@ document.addEventListener("DOMContentLoaded", function () {
         voiceIndicator.classList.remove("listening");
       }
 
-      // Restart recognition if voice control is active
-      if (isVoiceControlActive) {
+      // Restart recognition if voice control is active and not speaking
+      if (isVoiceControlActive && !isSpeaking) {
         setTimeout(() => {
           try {
             recognition.start();
@@ -434,8 +471,8 @@ document.addEventListener("DOMContentLoaded", function () {
         setActiveControl("eye");
       }
 
-      // Try to restart after error
-      if (isVoiceControlActive) {
+      // Try to restart after error if not speaking
+      if (isVoiceControlActive && !isSpeaking) {
         setTimeout(() => {
           try {
             recognition.start();
@@ -447,6 +484,13 @@ document.addEventListener("DOMContentLoaded", function () {
     };
 
     recognition.onresult = function (event) {
+      const now = Date.now();
+      // Debounce to prevent rapid consecutive commands
+      if (now - lastCommandTime < COMMAND_DEBOUNCE) {
+        return;
+      }
+      lastCommandTime = now;
+      
       const command = event.results[0][0].transcript.toLowerCase().trim();
       handleVoiceCommand(command);
     };
@@ -459,11 +503,140 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
+  // Improved speak function with proper recognition management
+  async function speak(text, interrupt = true) {
+    if (!speechConfig.enabled) return;
+
+    // Skip if already speaking the same text
+    if (isSpeaking && !interrupt) return;
+    
+    return new Promise((resolve) => {
+      isSpeaking = true;
+      
+      // Show speaking indicator
+      if (speakingIndicator) {
+        speakingIndicator.style.display = "block";
+      }
+
+      // Cancel any ongoing speech if interrupt is true
+      if (interrupt && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      
+      // Pause recognition before speaking
+      if (isVoiceControlActive && recognition && isListening) {
+        recognition.stop();
+      }
+      
+      // Create and speak the utterance
+      if (window.speechSynthesis) {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = speechConfig.rate;
+        utterance.pitch = speechConfig.pitch;
+        utterance.volume = speechConfig.volume;
+        
+        if (speechConfig.voice) {
+          utterance.voice = speechConfig.voice;
+        }
+        
+        utterance.onend = () => {
+          isSpeaking = false;
+          if (speakingIndicator) {
+            speakingIndicator.style.display = "none";
+          }
+          
+          // Resume recognition after speaking completes
+          if (isVoiceControlActive && recognition && !isListening) {
+            setTimeout(() => {
+              try {
+                recognition.start();
+              } catch (e) {
+                console.error("Failed to restart recognition:", e);
+              }
+            }, 300);
+          }
+          resolve();
+        };
+        
+        utterance.onerror = (event) => {
+          console.error("Speech synthesis error:", event);
+          isSpeaking = false;
+          if (speakingIndicator) {
+            speakingIndicator.style.display = "none";
+          }
+          
+          // Still attempt to resume recognition
+          if (isVoiceControlActive && recognition && !isListening) {
+            setTimeout(() => {
+              try {
+                recognition.start();
+              } catch (e) {
+                console.error("Failed to restart recognition:", e);
+              }
+            }, 300);
+          }
+          resolve();
+        };
+        
+        window.speechSynthesis.speak(utterance);
+      } else {
+        isSpeaking = false;
+        resolve();
+      }
+    });
+  }
+
+  // Show screen with voice guidance
+  function showScreen(screenId) {
+    screens.forEach((screen) => {
+      screen.classList.remove("active");
+    });
+    const targetScreen = document.getElementById(screenId);
+    if (targetScreen) {
+      targetScreen.classList.add("active");
+      
+      // Provide voice guidance when screen changes
+      if (isVoiceControlActive) {
+        setTimeout(() => {
+          switch(screenId) {
+            case "welcome-screen":
+              speak("Welcome to accessible ATM. Say 'Start' to begin or 'Help' for commands.");
+              break;
+            case "pin-screen":
+              speak("Please enter your 3 digit PIN. Say numbers zero through nine, 'Clear' to start over, or 'Enter' when done.");
+              break;
+            case "transaction-screen":
+              speak("Transaction screen. Say 'Withdrawal' to get cash or 'Balance' to check your account balance.");
+              break;
+            case "withdrawal-screen":
+              speak("Select withdrawal amount. Say 'One hundred', 'Two hundred', or 'Five hundred' rupees.");
+              break;
+            case "balance-screen":
+              const balance = document.querySelector("#withdrawal-complete-screen > div.receipt > p.total > span").textContent;
+              if (balance) {
+                speak(`Your account balance is ${balance}. Say 'Done' to continue.`);
+              }
+              break;
+            case "withdrawal-complete-screen":
+              const amount = document.getElementById("withdrawal-amount")?.textContent;
+              if (amount) {
+                speak(`Withdrawal complete. ${amount} dispensed. Say 'Done' to continue.`);
+              }
+              break;
+            case "thank-you-screen":
+              speak("Thank you for using our ATM. Say 'New transaction' to start over.");
+              break;
+          }
+        }, 300);
+      }
+    }
+  }
+
   // Toggle voice listening
   function toggleVoiceListening() {
     if (isListening) {
       recognition.stop();
-    } else if (isVoiceControlActive) {
+    } else if (isVoiceControlActive && !isSpeaking) {
       try {
         recognition.start();
       } catch (e) {
@@ -494,8 +667,8 @@ document.addEventListener("DOMContentLoaded", function () {
       if (eyeControlToggle) eyeControlToggle.classList.remove("active");
       isVoiceControlActive = true;
 
-      // Start voice recognition
-      if (recognition) {
+      // Start voice recognition if not speaking
+      if (recognition && !isSpeaking) {
         try {
           recognition.start();
         } catch (e) {
@@ -511,20 +684,38 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
-  // Handle voice commands
-  function handleVoiceCommand(command) {
+  // Handle voice commands with improved speech flow
+  async function handleVoiceCommand(command) {
     console.log("Voice command recognized:", command);
     command = command.replace(".", "");
     showCommandFeedback(command);
-    if(command.includes("voice")){
+    
+    // Prevent processing while speaking
+    if (isSpeaking) return;
+
+    // Process command and speak feedback
+    switch(command) {
+      case "one": case "two": case "three": case "four": case "five":
+      case "six": case "seven": case "eight": case "nine": case "zero":
+        await speak(command);
+        break;
+      case "clear":
+        await speak("PIN cleared");
+        break;
+      case "enter":
+        case "submit":
+        await speak("Verifying PIN");
+        break;
+    }
+
+    if (command.includes("voice")) {
       webgazer.pause();
       return;
     }
-    if(command.includes("visual")){
+    if (command.includes("visual")) {
       webgazer.resume();
       return;
     }
-    // General commands
     if (command.includes("help")) {
       if (commandsModal) {
         commandsModal.style.display = "flex";
@@ -547,7 +738,7 @@ document.addEventListener("DOMContentLoaded", function () {
         break;
 
       case "pin-screen":
-        handlePinScreenCommands(command);
+        await handlePinScreenCommands(command);
         break;
 
       case "transaction-screen":
@@ -599,8 +790,8 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
-  // Handle PIN screen specific commands
-  function handlePinScreenCommands(command) {
+  // Handle PIN screen specific commands with async/await
+  async function handlePinScreenCommands(command) {
     command = command.replace(".", "");
     // Number input
     const numbers = {
@@ -630,6 +821,7 @@ document.addEventListener("DOMContentLoaded", function () {
     for (const [word, number] of Object.entries(numbers)) {
       if (command.includes(word)) {
         handleKeyPress(number);
+        await speak(number);
         return;
       }
     }
@@ -637,8 +829,10 @@ document.addEventListener("DOMContentLoaded", function () {
     // Other PIN commands
     if (command.includes("clear")) {
       handleKeyPress("clear");
+      await speak("PIN cleared");
     } else if (command.includes("enter") || command.includes("submit")) {
       handleKeyPress("enter");
+      await speak("Verifying PIN");
     }
   }
 
@@ -714,8 +908,9 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   // Handle amount selection
-  function handleAmountSelection(amount) {
+  async function handleAmountSelection(amount) {
     currentWithdrawalAmount = amount;
+    await speak(`Withdrawing ${amount} rupees`);
     showProcessingScreen("Processing Withdrawal");
 
     setTimeout(() => {
@@ -776,13 +971,18 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   // Show notification
-  function showNotification(message, type = "info") {
+  async function showNotification(message, type = "info") {
     if (!notification) return;
     
     notification.textContent = message;
     notification.className = "notification";
     notification.classList.add(type);
     notification.classList.add("show");
+
+    // Speak important notifications
+    if (type === "error" || (isVoiceControlActive && type === "info")) {
+      await speak(message);
+    }
 
     setTimeout(() => {
       notification.classList.remove("show");
@@ -799,17 +999,6 @@ document.addEventListener("DOMContentLoaded", function () {
     } else {
       statusIndicator.classList.remove("active");
       statusText.textContent = "Eye Tracking: Inactive";
-    }
-  }
-
-  // Change active screen
-  function showScreen(screenId) {
-    screens.forEach((screen) => {
-      screen.classList.remove("active");
-    });
-    const targetScreen = document.getElementById(screenId);
-    if (targetScreen) {
-      targetScreen.classList.add("active");
     }
   }
 
@@ -877,6 +1066,9 @@ document.addEventListener("DOMContentLoaded", function () {
     cleanupGazeTargeting();
     if (recognition) {
       recognition.stop();
+    }
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
     }
   });
 });
